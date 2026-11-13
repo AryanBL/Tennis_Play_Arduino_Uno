@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "author": "Arduino Table Tennis",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-arduino-uno", "id": "uno", "top": 380, "left": 20, "attrs": {} },
+    { "type": "wokwi-breadboard", "id": "bbSense", "top": 260, "left": 330, "attrs": { "color": "white" } },
+    { "type": "wokwi-breadboard", "id": "bbCtrl", "top": 260, "left": 1260, "attrs": { "color": "#e8f1ff" } },
+    { "type": "wokwi-hc-sr04", "id": "p1Left", "top": 48, "left": 360, "attrs": { "distance": "80" } },
+    { "type": "wokwi-hc-sr04", "id": "p1Right", "top": 48, "left": 610, "attrs": { "distance": "80" } },
+    { "type": "wokwi-hc-sr04", "id": "p2Left", "top": 48, "left": 860, "attrs": { "distance": "80" } },
+    { "type": "wokwi-hc-sr04", "id": "p2Right", "top": 48, "left": 1110, "attrs": { "distance": "80" } },
+    { "type": "wokwi-pushbutton", "id": "serveP1", "top": 310, "left": 1320, "attrs": { "color": "green", "label": "P1 SERVE" } },
+    { "type": "wokwi-pushbutton", "id": "serveP2", "top": 430, "left": 1320, "attrs": { "color": "blue", "label": "P2 SERVE" } },
+    { "type": "wokwi-buzzer", "id": "buzzer", "top": 330, "left": 1630, "attrs": { "volume": "0.2" } }
+  ],
+  "connections": [
+    [ "uno:5V", "bbSense:tp.1", "red", [ "h10" ] ],
+    [ "uno:GND.1", "bbSense:tn.1", "black", [ "h20" ] ],
+    [ "uno:5V", "bbCtrl:tp.1", "red", [ "h30" ] ],
+    [ "uno:GND.2", "bbCtrl:bn.1", "black", [ "h40" ] ],
+
+    [ "p1Left:VCC", "bbSense:tp.10", "red", [ "v-30", "h20" ] ],
+    [ "p1Left:GND", "bbSense:tn.10", "black", [ "v30", "h20" ] ],
+    [ "p1Right:VCC", "bbSense:tp.20", "red", [ "v-30", "h20" ] ],
+    [ "p1Right:GND", "bbSense:tn.20", "black", [ "v30", "h20" ] ],
+    [ "p2Left:VCC", "bbSense:tp.30", "red", [ "v-30", "h20" ] ],
+    [ "p2Left:GND", "bbSense:tn.30", "black", [ "v30", "h20" ] ],
+    [ "p2Right:VCC", "bbSense:tp.40", "red", [ "v-30", "h20" ] ],
+    [ "p2Right:GND", "bbSense:tn.40", "black", [ "v30", "h20" ] ],
+
+    [ "p1Left:TRIG", "uno:4", "orange", [ "h260", "v180", "h-260" ] ],
+    [ "p1Left:ECHO", "uno:5", "yellow", [ "h240", "v200", "h-240" ] ],
+    [ "p1Right:TRIG", "uno:6", "orange", [ "h210", "v220", "h-210" ] ],
+    [ "p1Right:ECHO", "uno:7", "yellow", [ "h190", "v240", "h-190" ] ],
+    [ "p2Left:TRIG", "uno:8", "orange", [ "h160", "v260", "h-160" ] ],
+    [ "p2Left:ECHO", "uno:9", "yellow", [ "h140", "v280", "h-140" ] ],
+    [ "p2Right:TRIG", "uno:10", "orange", [ "h110", "v300", "h-110" ] ],
+    [ "p2Right:ECHO", "uno:11", "yellow", [ "h90", "v320", "h-90" ] ],
+
+    [ "serveP1:1.l", "uno:2", "green", [ "h-650", "v220", "h650" ] ],
+    [ "serveP1:2.l", "bbCtrl:bn.10", "black", [ "h30", "v80", "h-30" ] ],
+    [ "serveP2:1.l", "uno:3", "blue", [ "h-650", "v-10", "h650" ] ],
+    [ "serveP2:2.l", "bbCtrl:bn.20", "black", [ "h30", "v-80", "h-30" ] ],
+    [ "buzzer:1", "uno:12", "purple", [ "h-520", "v130", "h520" ] ],
+    [ "buzzer:2", "bbCtrl:bn.40", "black", [ "h-40", "v110", "h40" ] ]
+  ],
+  "dependencies": {}
+}

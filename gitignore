@@ -1,0 +1,49 @@
+# PlatformIO build files
+.pio/
+.pioenvs/
+.piolibdeps/
+.clangd/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django local files
+db.sqlite3
+db.sqlite3-journal
+*.log
+
+# Environment and secret configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor and operating-system files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local agent/tool cache
+.agent-cache/
+
+# Generated archives and temporary files
+*.zip
+*.tar
+*.tar.gz
+*.tmp
+*.bak
