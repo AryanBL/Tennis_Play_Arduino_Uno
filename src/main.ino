@@ -39,10 +39,45 @@ uint8_t servingPlayer = 1;
 bool rallyStarted = false;
 bool gameOver = false;
 uint8_t winner = 0;
+bool swingActive[2] = {false, false};
 
 const uint32_t SHOT_COOLDOWN_MS = 450;
 const uint32_t BUTTON_DEBOUNCE_US = 220000UL;
 const float MIN_HAND_SPEED = 5.0f;
+
+// Complete board snapshot, separate from the compact GUI protocol.
+void logGameEvent(const char* kind, uint8_t player, const char* state, float flightTime = 0) {
+  Serial.print(F("EVENT,")); Serial.print(kind);
+  Serial.print(','); Serial.print(millis());
+  Serial.print(','); Serial.print(player);
+  Serial.print(','); Serial.print(state);
+  Serial.print(','); Serial.print(ballX, 2);
+  Serial.print(','); Serial.print(scoreP1);
+  Serial.print(','); Serial.print(scoreP2);
+  Serial.print(','); Serial.print(servingPlayer);
+  Serial.print(','); Serial.print(winner);
+  Serial.print(','); Serial.print(millis() < keyboardOverrideUntil ? F("GUI") : F("ULTRASONIC"));
+  for (uint8_t i = 0; i < 4; i++) { Serial.print(','); Serial.print(distanceCm[i], 2); }
+  for (uint8_t i = 0; i < 4; i++) { Serial.print(','); Serial.print(speedCmS[i], 2); }
+  uint8_t left = player == 2 ? 2 : 0;
+  Serial.print(','); Serial.print(player ? (speedCmS[left] + speedCmS[left + 1]) / 2.0f : 0, 2);
+  Serial.print(','); Serial.print(player ? speedCmS[left + 1] - speedCmS[left] : 0, 2);
+  Serial.print(','); Serial.println(flightTime, 2);
+}
+
+void detectSwings() {
+  for (uint8_t p = 0; p < 2; p++) {
+    float power = (speedCmS[p * 2] + speedCmS[p * 2 + 1]) / 2.0f;
+    bool active = power >= MIN_HAND_SPEED;
+    if (active && !swingActive[p]) {
+      bool inZone = p == 0 ? ballX <= 15.0f : ballX >= 85.0f;
+      const char* state = gameOver ? "GAME_OVER" : !rallyStarted ? "WAITING_SERVE" :
+        !inZone ? "OUT_OF_ZONE" : millis() - lastShotMs < SHOT_COOLDOWN_MS ? "COOLDOWN" : "READY";
+      logGameEvent("SWING", p + 1, state);
+    }
+    swingActive[p] = active;
+  }
+}
 
 void onServeP1() {
   uint32_t now = micros();
@@ -102,6 +137,7 @@ void resetRallyForServe(uint8_t player) {
   beep(880, 90);
   sendScore();
   sendBall();
+  logGameEvent("SERVE", player, "RALLY_STARTED");
 }
 
 void registerPoint(uint8_t pointWinner, const char* reason) {
@@ -120,6 +156,7 @@ void registerPoint(uint8_t pointWinner, const char* reason) {
     Serial.println(winner);
     message(winner == 1 ? F("P1 WINS") : F("P2 WINS"));
     sendScore();
+    logGameEvent("POINT", 0, reason);
     return;
   }
 
@@ -133,6 +170,7 @@ void registerPoint(uint8_t pointWinner, const char* reason) {
   ballX = (servingPlayer == 1) ? 12.0f : 88.0f;
   ballV = 0;
   sendBall();
+  logGameEvent("POINT", 0, reason);
 }
 
 float measureOne(uint8_t index) {
@@ -179,9 +217,16 @@ void readKeyboardCommands() {
   while (Serial.available() > 0) {
     String command = Serial.readStringUntil('\n');
     command.trim();
-    int sensorIndex = -1;
-    float speed = 0.0f;
-    if (sscanf(command.c_str(), "KEY,%d,%f", &sensorIndex, &speed) == 2 && sensorIndex >= 0 && sensorIndex < 4) {
+    if (command == "SERVE") {
+      // Use the same active-player and rally guards as the physical buttons.
+      if (servingPlayer == 1) serveP1Event = true;
+      else serveP2Event = true;
+      continue;
+    }
+    // Uno's default scanf does not support %f. Parse the speed explicitly.
+    if (command.startsWith("KEY,") && command.length() > 6 && command.charAt(5) == ',' && command.charAt(4) >= '0' && command.charAt(4) <= '3') {
+      uint8_t sensorIndex = command.charAt(4) - '0';
+      float speed = command.substring(6).toFloat();
       keyboardSpeedCmS[sensorIndex] = constrain(speed, 0.0f, 250.0f);
       keyboardOverrideUntil = millis() + 300;
       for (uint8_t i = 0; i < 4; i++) speedCmS[i] = keyboardSpeedCmS[i];
@@ -235,6 +280,7 @@ void evaluateShot(uint8_t player) {
   }
 
   sendShot(player, power, direction, result, flightTime);
+  logGameEvent("SHOT", player, result, flightTime);
   lastShotMs = now;
   beep(1200, 65);
 
@@ -305,6 +351,7 @@ void loop() {
   readKeyboardCommands();
   handleServeEvents();
   sampleSensors();
+  detectSwings();
   evaluateShot(1);
   evaluateShot(2);
   updateBall();

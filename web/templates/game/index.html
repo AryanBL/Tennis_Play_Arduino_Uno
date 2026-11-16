@@ -8,7 +8,7 @@
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
     body { margin: 0; background: #101b2d; color: #eef5ff; font: 15px Segoe UI, Arial, sans-serif; }
-    .page { max-width: 1180px; margin: auto; padding: 18px; }
+    .page { max-width: 1500px; margin: auto; padding: 18px; }
     header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     h1 { color: #80ed99; font-size: 25px; margin: 0 0 8px; }
     .status { color: #b8c7dd; font-size: 13px; }
@@ -25,21 +25,51 @@
     .meter { height: 12px; background: #263b5a; border-radius: 8px; overflow: hidden; margin-top: 4px; }
     .fill { height: 100%; width: 0%; transition: width .12s linear; }
     #p1-fill { background: #ff6b6b; } #p2-fill { background: #4dabf7; }
+    .game-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr) 190px; gap: 14px; align-items: start; }
+    .sensors { margin: 0; padding: 16px; }
+    .sensors h2 { font-size: 17px; margin: 0 0 18px; }
+    .sensor { display: block; margin-bottom: 24px; line-height: 1.7; }
+    .sensor input { display: block; width: 100%; accent-color: #80ed99; }
+    .sensor output { color: #80ed99; font-variant-numeric: tabular-nums; }
+    .sensor-hint { color: #b8c7dd; font-size: 12px; line-height: 1.5; }
+    .serve-button { background: #80ed99; color: #101b2d; border: 0; border-radius: 6px; padding: 10px 16px; font: inherit; font-weight: bold; cursor: pointer; }
+    .serve-button:disabled { opacity: .5; cursor: default; }
+    .scoreline { flex-wrap: wrap; }
+    @media (max-width: 900px) { .game-layout { grid-template-columns: 1fr 1fr; } .game-main { grid-column: 1 / -1; grid-row: 1; } }
   </style>
 </head>
 <body>
 <main class="page">
   <header><h1>ARDUINO TABLE TENNIS</h1><div id="status" class="status">Connecting…</div></header>
   <div class="panel help">
-    Focus this page, then hold <kbd>A</kbd>/<kbd>D</kbd> for Player 1's left/right sensors or
+    Focus this page, then tap <kbd>A</kbd>/<kbd>D</kbd> for Player 1's left/right sensors or
     <kbd>←</kbd>/<kbd>→</kbd> for Player 2's left/right sensors. You can also move the Wokwi sensor sliders.
+    Release to swing: a quick tap is fast and powerful; a long hold is slow and weak.
+    For an IN shot, try a 100–150 ms tap of A for P1 or Right Arrow for P2, releasing in your hitting zone.
+    Press <kbd>Space</kbd> or click Serve to serve for the active player.
     The dashed end areas are only valid hitting zones; rackets move after a real swing.
   </div>
+  <div class="game-layout">
+  <aside class="panel sensors" aria-label="Player 1 ultrasonic distances">
+    <h2>Player 1 sensors</h2>
+    <label class="sensor" for="distance-0">Left · A<br><output id="distance-value-0" for="distance-0">80 cm</output><input id="distance-0" type="range" min="2" max="400" value="80" step="1" aria-label="Player 1 left distance in centimeters"></label>
+    <label class="sensor" for="distance-1">Right · D<br><output id="distance-value-1" for="distance-1">80 cm</output><input id="distance-1" type="range" min="2" max="400" value="80" step="1" aria-label="Player 1 right distance in centimeters"></label>
+    <p class="sensor-hint">Drag toward 2 cm to swing. Faster distance changes give more power. Move back toward 400 cm to prepare again.</p>
+  </aside>
+  <div class="game-main">
   <canvas id="game" width="1100" height="650"></canvas>
-  <div class="scoreline"><div id="score" class="score">0 : 0</div><div id="serve" class="serve">Serve: P1</div><div id="message" class="message">Waiting for Arduino…</div></div>
+  <div class="scoreline"><div id="score" class="score">0 : 0</div><div id="serve" class="serve">Serve: P1</div><button id="serve-button" class="serve-button" type="button" disabled>Serve · Space</button><div id="message" class="message">Waiting for Arduino…</div></div>
   <div class="powers">
     <div class="power">P1 power <div class="meter"><div id="p1-fill" class="fill"></div></div></div>
     <div class="power">P2 power <div class="meter"><div id="p2-fill" class="fill"></div></div></div>
+  </div>
+  </div>
+  <aside class="panel sensors" aria-label="Player 2 ultrasonic distances">
+    <h2>Player 2 sensors</h2>
+    <label class="sensor" for="distance-2">Left · ←<br><output id="distance-value-2" for="distance-2">80 cm</output><input id="distance-2" type="range" min="2" max="400" value="80" step="1" aria-label="Player 2 left distance in centimeters"></label>
+    <label class="sensor" for="distance-3">Right · →<br><output id="distance-value-3" for="distance-3">80 cm</output><input id="distance-3" type="range" min="2" max="400" value="80" step="1" aria-label="Player 2 right distance in centimeters"></label>
+    <p class="sensor-hint">Virtual distance: 2–400 cm, like the ultrasonic sensor control. Only movement toward the sensor produces a swing.</p>
+  </aside>
   </div>
 </main>
 <script>
@@ -47,42 +77,169 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const state = { ball: 50, targetBall: 50, racket: [0, 0], targetRacket: [0, 0], pulseUntil: [0, 0], lastEvent: 0, keys: new Set(), score: [0, 0], server: 1 };
 const sensorKeys = { a: 0, d: 1, ArrowLeft: 2, ArrowRight: 3 };
+const heldSince = new Map();
+const MAX_SENSOR_SPEED = 250;
+const KEYBOARD_TRAVEL_CM = 6;
+const MIN_KEY_DURATION_MS = 20;
+const KEYBOARD_PULSE_MS = 200;
+const keyboardPulses = Array.from({length: 4}, () => ({speed: 0, until: 0}));
+const pendingSpeeds = new Map();
+const sendingSensors = new Set();
+let shotPower = [0, 0];
+const sliderSensors = Array.from({length: 4}, () => ({distance: 80, time: performance.now(), speed: 0, until: 0}));
+const orderedKeys = ['a', 'd', 'ArrowLeft', 'ArrowRight'];
+let connected = false;
+let serving = false;
+async function serve() {
+  if (serving) return;
+  if (!connected) {
+    document.getElementById('message').textContent = 'Start Wokwi and wait for the connection before serving.';
+    return;
+  }
+  serving = true;
+  try {
+    const response = await fetch('/api/serve/', {method: 'POST'});
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error('Serve failed');
+  } catch (_) { document.getElementById('message').textContent = 'Could not serve. Check the Wokwi connection.'; }
+  finally { serving = false; }
+}
+document.getElementById('serve-button').addEventListener('click', serve);
 
-function sendSensor(sensor, speed) {
-  fetch('/api/keyboard/', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sensor, speed}) }).catch(() => {});
+// Keep requests ordered for each sensor, replacing queued updates with the latest
+// value so a delayed swing update cannot arrive after its reset.
+async function sendSensor(sensor, speed) {
+  pendingSpeeds.set(sensor, speed);
+  if (sendingSensors.has(sensor)) return;
+  sendingSensors.add(sensor);
+  try {
+    while (pendingSpeeds.has(sensor)) {
+      const latestSpeed = pendingSpeeds.get(sensor);
+      pendingSpeeds.delete(sensor);
+      await fetch('/api/keyboard/', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sensor, speed: latestSpeed}) }).catch(() => {});
+    }
+  } finally { sendingSensors.delete(sensor); }
+}
+function keyName(event) { return event.key.length === 1 ? event.key.toLowerCase() : event.key; }
+function speedForDuration(durationMs) {
+  return Math.min(MAX_SENSOR_SPEED, KEYBOARD_TRAVEL_CM / (Math.max(MIN_KEY_DURATION_MS, durationMs) / 1000));
+}
+function sensorSpeed(key, now = performance.now()) {
+  const pulse = keyboardPulses[sensorKeys[key]];
+  return pulse && now < pulse.until ? pulse.speed : 0;
+}
+function inputSpeed(sensor, now = performance.now()) {
+  const slider = sliderSensors[sensor];
+  return Math.max(sensorSpeed(orderedKeys[sensor], now), now < slider.until ? slider.speed : 0);
+}
+sliderSensors.forEach((sample, sensor) => {
+  const slider = document.getElementById(`distance-${sensor}`);
+  slider.addEventListener('pointerdown', () => { sample.time = performance.now(); });
+  slider.addEventListener('input', () => {
+    const now = performance.now();
+    const distance = Number(slider.value);
+    const dt = Math.max(20, now - sample.time) / 1000;
+    sample.speed = Math.min(MAX_SENSOR_SPEED, Math.max(0, (sample.distance - distance) / dt));
+    sample.distance = distance;
+    sample.time = now;
+    sample.until = now + 150;
+    document.getElementById(`distance-value-${sensor}`).textContent = `${distance} cm`;
+    sendSensor(sensor, inputSpeed(sensor, now));
+    const player = Math.floor(sensor / 2);
+    if (sample.speed > 0) {
+      setRacketTarget(player, sensor % 2 === 0 ? -34 : 34);
+      state.pulseUntil[player] = now + 150;
+    }
+    updatePowerMeters(now);
+  });
+});
+function updatePowerMeters(now = performance.now()) {
+  [['a', 'd'], ['ArrowLeft', 'ArrowRight']].forEach((keys, player) => {
+    const held = keys.some(key => heldSince.has(key) || sensorSpeed(key, now) > 0) || sliderSensors.slice(player * 2, player * 2 + 2).some(sample => now < sample.until);
+    const power = held ? (inputSpeed(player * 2, now) + inputSpeed(player * 2 + 1, now)) / 2 : shotPower[player];
+    document.getElementById(`p${player + 1}-fill`).style.width = `${Math.min(100, power / 130 * 100)}%`;
+  });
 }
 function setRacketTarget(player, value) { state.targetRacket[player] = value; }
 window.addEventListener('keydown', event => {
-  const sensor = sensorKeys[event.key];
+  if (event.target?.matches('textarea, input:not([type="range"]), [contenteditable="true"]')) return;
+  if (event.code === 'Space' || event.key === ' ') {
+    event.preventDefault();
+    if (!event.repeat) serve();
+    return;
+  }
+  if (event.target?.matches('input[type="range"]')) return;
+  const key = keyName(event);
+  const sensor = sensorKeys[key];
   if (sensor === undefined) return;
   event.preventDefault();
-  state.keys.add(event.key);
-  sendSensor(sensor, 85);
-  setRacketTarget(sensor < 2 ? 0 : 1, sensor % 2 === 0 ? -34 : 34);
+  if (heldSince.has(key)) return;
+  heldSince.set(key, performance.now());
+  keyboardPulses[sensor].speed = 0;
+  keyboardPulses[sensor].until = 0;
+  state.keys.add(key);
+  sendSensor(sensor, inputSpeed(sensor));
 });
 window.addEventListener('keyup', event => {
-  const sensor = sensorKeys[event.key];
+  const key = keyName(event);
+  const sensor = sensorKeys[key];
   if (sensor === undefined) return;
   event.preventDefault();
-  state.keys.delete(event.key);
-  sendSensor(sensor, 0);
+  if (!heldSince.has(key)) return;
+  const now = performance.now();
+  keyboardPulses[sensor].speed = speedForDuration(now - heldSince.get(key));
+  keyboardPulses[sensor].until = now + KEYBOARD_PULSE_MS;
+  heldSince.delete(key);
+  state.keys.delete(key);
+  sendSensor(sensor, inputSpeed(sensor));
   const player = sensor < 2 ? 0 : 1;
-  const keys = player === 0 ? ['a', 'd'] : ['ArrowLeft', 'ArrowRight'];
-  if (!keys.some(key => state.keys.has(key))) setRacketTarget(player, 0);
+  setRacketTarget(player, sensor % 2 === 0 ? -34 : 34);
+  state.pulseUntil[player] = now + KEYBOARD_PULSE_MS;
+  updatePowerMeters();
 });
+function releaseAllKeys() {
+  sliderSensors.forEach((sample, sensor) => {
+    if (heldSince.has(orderedKeys[sensor]) || sample.until > 0 || keyboardPulses[sensor].until > 0) sendSensor(sensor, 0);
+    keyboardPulses[sensor].speed = 0;
+    keyboardPulses[sensor].until = 0;
+    sample.speed = 0;
+    sample.until = 0;
+  });
+  heldSince.clear();
+  state.keys.clear();
+  state.targetRacket = [0, 0];
+  updatePowerMeters();
+}
+window.addEventListener('blur', releaseAllKeys);
+document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAllKeys(); });
+setInterval(() => {
+  const now = performance.now();
+  sliderSensors.forEach((sample, sensor) => {
+    const pulse = keyboardPulses[sensor];
+    if (heldSince.has(orderedKeys[sensor]) || sample.until > 0 || pulse.until > 0) {
+      sendSensor(sensor, inputSpeed(sensor, now));
+      if (now >= sample.until) sample.until = 0;
+      if (now >= pulse.until) pulse.until = 0;
+    }
+  });
+  updatePowerMeters(now);
+}, 80);
 
 async function poll() {
   try {
     const response = await fetch('/api/state/');
     const data = await response.json();
+    connected = data.connected;
+    document.getElementById('serve-button').disabled = !connected || Boolean(data.winner);
+    document.getElementById('serve-button').textContent = `Serve P${data.server} · Space`;
     state.targetBall = data.ball;
     state.score = data.score; state.server = data.server;
     document.getElementById('status').textContent = data.status;
     document.getElementById('score').textContent = `${data.score[0]} : ${data.score[1]}`;
     document.getElementById('serve').textContent = `Serve: P${data.server}`;
     document.getElementById('message').textContent = data.winner ? `PLAYER ${data.winner} WINS!` : data.message;
-    document.getElementById('p1-fill').style.width = `${Math.min(100, data.power[0] / 130 * 100)}%`;
-    document.getElementById('p2-fill').style.width = `${Math.min(100, data.power[1] / 130 * 100)}%`;
+    shotPower = data.power;
+    updatePowerMeters();
     if (data.racket_event !== state.lastEvent) {
       state.lastEvent = data.racket_event;
       const player = data.racket_player;

@@ -6,4 +6,5 @@ urlpatterns = [
     path("", views.index, name="index"),
     path("api/state/", views.state, name="state"),
     path("api/keyboard/", views.keyboard, name="keyboard"),
+    path("api/serve/", views.serve, name="serve"),
 ]

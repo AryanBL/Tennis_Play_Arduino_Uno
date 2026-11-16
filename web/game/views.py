@@ -32,3 +32,10 @@ def keyboard(request):
     except (ValueError, KeyError, TypeError, json.JSONDecodeError):
         return JsonResponse({"ok": False, "error": "Invalid sensor command"}, status=400)
     return JsonResponse({"ok": bridge.send_keyboard(sensor, speed)})
+
+
+@csrf_exempt
+@require_POST
+def serve(request):
+    sent = bridge.send_serve()
+    return JsonResponse({"ok": sent}, status=200 if sent else 503)

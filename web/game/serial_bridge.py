@@ -1,9 +1,12 @@
 import copy
+import logging
 import os
 import threading
 import time
 
 import serial
+
+from .event_log import EventLog, parse_event
 
 
 class SerialBridge:
@@ -16,6 +19,7 @@ class SerialBridge:
         self.stop_event = threading.Event()
         self.lock = threading.RLock()
         self.write_lock = threading.Lock()
+        self.event_log = EventLog()
         self.state = {
             "connected": False,
             "status": "Waiting for the Wokwi serial bridge",
@@ -76,7 +80,17 @@ class SerialBridge:
         if not fields:
             return
         with self.lock:
-            if fields[0] == "BALL" and len(fields) >= 2:
+            if fields[0] == "EVENT":
+                try:
+                    event = parse_event(line)
+                except (ValueError, IndexError):
+                    logging.getLogger(__name__).warning("Ignored malformed board event: %s", line)
+                    return
+                try:
+                    self.event_log.write(event)
+                except OSError:
+                    logging.getLogger(__name__).exception("Could not write game event log")
+            elif fields[0] == "BALL" and len(fields) >= 2:
                 try:
                     self.state["ball"] = max(0.0, min(100.0, float(fields[1])))
                 except ValueError:
@@ -104,13 +118,19 @@ class SerialBridge:
                 self.state["message"] = f"PLAYER {fields[1]} WINS!"
 
     def send_keyboard(self, sensor_index, speed):
+        return self._send_command(f"KEY,{int(sensor_index)},{float(speed):.1f}")
+
+    def send_serve(self):
+        return self._send_command("SERVE")
+
+    def _send_command(self, command):
         self.start()
         with self.write_lock:
             connection = self.connection
             if connection is None:
                 return False
             try:
-                connection.write(f"KEY,{int(sensor_index)},{float(speed):.1f}\n".encode("ascii"))
+                connection.write(f"{command}\n".encode("ascii"))
                 return True
             except Exception as exc:
                 with self.lock:
